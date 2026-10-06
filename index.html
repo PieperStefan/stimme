@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Stimme">
+<meta name="theme-color" content="#1e66f5">
+<title>Stimme</title>
+<style>
+  :root {
+    --bg: #f7f7f8; --fg: #111; --box: rgba(255,255,255,.78); --border: #c9c9cf; --accent: #1e66f5; --muted: #666;
+    --on: #1e66f5; --onfg: #fff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #111; --fg: #eee; --box: rgba(28,28,30,.8); --border: #3a3a3f; --accent: #4d8dff; --muted: #999; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body::before {
+    content: ""; position: fixed; inset: 0; z-index: -1;
+    background: url("foto.jpg") center 20% / cover no-repeat;
+    opacity: .18; pointer-events: none;
+  }
+  body {
+    background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex; flex-direction: column;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  }
+  header {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    padding: 10px 12px; border-bottom: 1px solid var(--border); background: var(--box);
+  }
+  button, select {
+    font: inherit; font-size: 17px; padding: 10px 14px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--box); color: var(--fg); cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button:active { opacity: .7; }
+  .seg { display: flex; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; }
+  .seg button.on { background: var(--on); color: var(--onfg); }
+  .spacer { flex: 1; }
+  #status { font-size: 15px; color: var(--muted); white-space: nowrap; }
+  #status.talking { color: var(--accent); font-weight: 600; }
+  main { flex: 1; display: flex; padding: 12px; min-height: 0; }
+  textarea {
+    flex: 1; width: 100%; resize: none; font: inherit; font-size: 28px; line-height: 1.4;
+    padding: 16px; border: 2px solid var(--border); border-radius: 14px;
+    background: var(--box); color: var(--fg); outline: none;
+  }
+  textarea:focus { border-color: var(--accent); }
+  footer {
+    display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+    padding: 8px 12px 12px; font-size: 15px; color: var(--muted);
+  }
+  footer label { display: flex; align-items: center; gap: 6px; }
+  input[type=range] { width: 120px; }
+  #vorlagen { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 0 12px 10px; }
+  #vorlagen input {
+    font: inherit; font-size: 20px; padding: 10px 12px; border-radius: 10px;
+    border: 1px solid var(--border); background: var(--box); color: var(--fg); min-width: 0;
+  }
+  #vorlagen input:focus { outline: none; border-color: var(--accent); }
+  #vorlagen button { font-size: 20px; padding: 8px 16px; }
+  @media (max-width: 480px) { #vorlagen input { font-size: 17px; } }
+  #warn { display: none; padding: 12px; background: #c0392b; color: #fff; font-size: 16px; }
+  @media (max-width: 480px) {
+    button, select { font-size: 15px; padding: 9px 11px; }
+    textarea { font-size: 24px; }
+  }
+</style>
+</head>
+<body>
+<div id="warn">Dieser Browser kann nicht vorlesen. Bitte Safari (iPhone) oder Chrome/Edge (PC) benutzen.</div>
+<header>
+  <div class="seg" role="group" aria-label="Vorlesen bei">
+    <button id="modePunkt" class="on" type="button">Bei Punkt</button>
+    <button id="modeEnter" type="button">Bei Enter</button>
+  </div>
+  <button id="btnRepeat" type="button" title="Letzten Satz wiederholen">🔁 Nochmal</button>
+  <button id="btnStop" type="button" title="Vorlesen abbrechen">⏹ Stopp</button>
+  <button id="btnMut" type="button" title="Etwas Nettes hören">🌞 Mutmacher</button>
+  <span class="spacer"></span>
+  <span id="status">bereit</span>
+</header>
+<main>
+  <textarea id="t" autofocus autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+            placeholder="Hier schreiben. Bei jedem Punkt wird vorgelesen."></textarea>
+</main>
+<div id="vorlagen"></div>
+<footer>
+  <label>Tempo <input id="rate" type="range" min="0.6" max="1.4" step="0.1" value="1"> <span id="rateVal">1,0</span></label>
+  <label>Stimme <select id="voice"></select></label>
+  <span class="spacer"></span>
+  <button id="btnClear" type="button">🗑 Alles löschen</button>
+</footer>
+
+<script>
+(() => {
+  const synth = window.speechSynthesis;
+  const t = document.getElementById('t');
+  const status = document.getElementById('status');
+  const voiceSel = document.getElementById('voice');
+  const rate = document.getElementById('rate');
+  const rateVal = document.getElementById('rateVal');
+  const modePunkt = document.getElementById('modePunkt');
+  const modeEnter = document.getElementById('modeEnter');
+
+  if (!synth || !window.SpeechSynthesisUtterance) {
+    document.getElementById('warn').style.display = 'block';
+    return;
+  }
+
+  // ---------- Einstellungen ----------
+  const S = {
+    get mode() { return localStorage.getItem('mode') || 'punkt'; },
+    set mode(v) { localStorage.setItem('mode', v); },
+    get rate() { return parseFloat(localStorage.getItem('rate') || '1'); },
+    set rate(v) { localStorage.setItem('rate', String(v)); },
+    get voice() { return localStorage.getItem('voice') || ''; },
+    set voice(v) { localStorage.setItem('voice', v); },
+  };
+
+  // ---------- Stimmen ----------
+  let voices = [];
+  function loadVoices() {
+    const all = synth.getVoices();
+    if (!all.length) return;
+    const de = all.filter(v => /^de[-_]/i.test(v.lang));
+    voices = de.length ? de : all;
+    // Spaßstimmen von Apple ausblenden
+    const junk = /^(eddy|flo|grandma|grandpa|reed|rocko|sandy|shelley|bahh|bells|boing|bubbles|cellos|jester|organ|superstar|trinoids|whisper|wobble|zarvox|good news|bad news|albert|fred|junior|kathy|ralph)\b/i;
+    if (voices.some(v => !junk.test(v.name))) voices = voices.filter(v => !junk.test(v.name));
+    // bevorzugte Reihenfolge: Anna/Helena (iOS), Katja/Hedda (Windows), Google Deutsch
+    const pref = ['anna', 'helena', 'petra', 'katja', 'hedda', 'google deutsch', 'stefan', 'markus'];
+    voices.sort((a, b) => {
+      const ia = pref.findIndex(p => a.name.toLowerCase().includes(p));
+      const ib = pref.findIndex(p => b.name.toLowerCase().includes(p));
+      return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib);
+    });
+    voiceSel.innerHTML = '';
+    voices.forEach(v => {
+      const o = document.createElement('option');
+      o.value = v.name; o.textContent = v.name + (v.localService ? '' : ' (online)');
+      voiceSel.appendChild(o);
+    });
+    if (S.voice && voices.some(v => v.name === S.voice)) voiceSel.value = S.voice;
+  }
+  loadVoices();
+  synth.addEventListener('voiceschanged', loadVoices);
+  voiceSel.addEventListener('change', () => { S.voice = voiceSel.value; });
+
+  // ---------- Vorlesen ----------
+  let lastSpoken = '';
+  let unlocked = false;
+
+  function unlock() {
+    if (unlocked) return;
+    unlocked = true;
+    try { const u = new SpeechSynthesisUtterance(''); u.volume = 0; synth.speak(u); } catch (e) {}
+  }
+  ['touchend', 'mousedown', 'keydown'].forEach(ev =>
+    document.addEventListener(ev, unlock, { once: true, passive: true }));
+
+  function speak(text) {
+    text = text.replace(/\s+/g, ' ').trim();
+    if (!text) return;
+    lastSpoken = text;
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'de-DE';
+    u.rate = S.rate;
+    const v = voices.find(x => x.name === voiceSel.value);
+    if (v) u.voice = v;
+    u.onstart = () => { status.textContent = '🔊 ' + text.slice(0, 40) + (text.length > 40 ? '…' : ''); status.classList.add('talking'); };
+    u.onend = u.onerror = () => { if (!synth.speaking) { status.textContent = 'bereit'; status.classList.remove('talking'); } };
+    synth.speak(u);
+  }
+
+  // Position, bis zu der schon vorgelesen wurde
+  let spokenUpTo = 0;
+
+  function pending() {
+    const v = t.value;
+    if (spokenUpTo > v.length) spokenUpTo = v.length;
+    return v.slice(spokenUpTo);
+  }
+
+  function speakPending() {
+    const chunk = pending();
+    if (chunk.trim()) speak(chunk);
+    spokenUpTo = t.value.length;
+  }
+
+  t.addEventListener('input', (e) => {
+    if (S.mode !== 'punkt') return;
+    const d = e.data;
+    if (d && /[.!?]$/.test(d)) speakPending();
+    // Bei Diktat/Autovervollständigung kommt ggf. ein ganzer Block:
+    else if (!d && /[.!?]\s*$/.test(pending())) speakPending();
+  });
+
+  t.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      // Enter liest in beiden Modi vor (Enter-Modus: nur hier). Zeilenumbruch bleibt.
+      // Erst nach dem Einfügen prüfen, damit der Text vollständig ist.
+      setTimeout(speakPending, 0);
+    }
+  });
+
+  // ---------- Bedienung ----------
+  function setMode(m) {
+    S.mode = m;
+    modePunkt.classList.toggle('on', m === 'punkt');
+    modeEnter.classList.toggle('on', m === 'enter');
+    t.placeholder = m === 'punkt'
+      ? 'Hier schreiben. Bei jedem Punkt wird vorgelesen.'
+      : 'Hier schreiben. Mit Enter wird vorgelesen.';
+  }
+  modePunkt.addEventListener('click', () => { setMode('punkt'); t.focus(); });
+  modeEnter.addEventListener('click', () => { setMode('enter'); t.focus(); });
+  setMode(S.mode);
+
+  document.getElementById('btnRepeat').addEventListener('click', () => {
+    unlock();
+    if (lastSpoken) speak(lastSpoken);
+    else speakPending();
+    t.focus();
+  });
+
+  // ---------- Mutmacher ----------
+  const MUT = [
+    "Du bist stärker, als du gerade denkst. Jeder Tag bringt dich ein Stück weiter.",
+    "Heute darfst du einfach nur ausruhen. Mehr musst du nicht schaffen.",
+    "Deine Stimme kommt wieder. Bis dahin spreche ich für dich – und ich finde, das machen wir ganz gut zusammen.",
+    "Du hast das Schwerste schon hinter dir. Jetzt kommt das Heilen, und das kannst du.",
+    "Ganz ehrlich: Du siehst auch ohne Stimme umwerfend aus.",
+    "Ein Schritt nach dem anderen. Und heute hast du schon einen gemacht.",
+    "Du musst nicht tapfer sein. Du darfst auch einfach müde sein. Beides ist in Ordnung.",
+    "Wer dich kennt, weiß: Du kommst da durch. Und zwar mit Stil.",
+    "Tee, Decke, Serie. Das ist heute kein Faulenzen, das ist Therapie.",
+    "Schweigen ist Gold, sagt man. Du bist gerade also ziemlich reich.",
+    "Die Welt wartet auf deine Stimme. Aber sie hat Zeit. Du auch.",
+    "Du wirst gerade von vielen Menschen gedacht, gemocht und gedrückt. Spürst du das?",
+    "Jede Zelle in dir arbeitet gerade für dich. Du bist ein wandelndes Wunderwerk.",
+    "Heute ist ein guter Tag, um stolz auf dich zu sein. Du hast allen Grund dazu.",
+    "Was macht ein Pirat am Computer? Er drückt die Enter-Taste.",
+    "Was ist grün und klopft an die Tür? Ein Klopfsalat.",
+    "Treffen sich zwei Magneten. Sagt der eine: Was soll ich heute anziehen?",
+    "Warum können Geister so schlecht lügen? Weil man durch sie hindurchsieht.",
+    "Was sagt ein großer Stift zum kleinen Stift? Wachs-mal-Stift.",
+    "Kommt ein Pferd in die Bäckerei und sagt: Zehn Brötchen bitte. Der Bäcker: Wahnsinn, ein sprechendes Pferd! Sagt das Pferd: Was denn, ist das Brot alle?",
+    "Was macht ein Clown im Büro? Faxen.",
+    "Treffen sich zwei Jäger. Beide tot.",
+    "Warum hat der Bäcker eine Stimme wie Samt? Weil er jeden Morgen seine Brötchen ausruft. Na gut, der war schlecht. Aber du hast gelächelt.",
+    "Sagt der Arzt: Sie dürfen eine Woche nicht sprechen. Sagt die Patientin: ... Nichts. Sie war eine vorbildliche Patientin.",
+    "Ich hab dich lieb. Das sollte heute einfach mal jemand laut sagen.",
+    "Du bist nicht allein. Nicht heute, nicht morgen, nicht an irgendeinem Tag.",
+    "Lächeln geht auch ohne Stimme. Und deins ist das schönste.",
+    "Morgen wird ein bisschen besser als heute. Und übermorgen noch ein bisschen mehr.",
+  ];
+  let mutLast = -1;
+  document.getElementById('btnMut').addEventListener('click', () => {
+    unlock();
+    let i; do { i = Math.floor(Math.random() * MUT.length); } while (i === mutLast && MUT.length > 1);
+    mutLast = i;
+    synth.cancel();
+    speak(MUT[i]);
+    t.focus();
+  });
+
+  document.getElementById('btnStop').addEventListener('click', () => { synth.cancel(); status.textContent = 'bereit'; status.classList.remove('talking'); t.focus(); });
+
+  document.getElementById('btnClear').addEventListener('click', () => {
+    if (!t.value.trim() || confirm('Wirklich alles löschen?')) {
+      t.value = ''; spokenUpTo = 0; t.focus();
+    }
+  });
+
+  rate.value = S.rate;
+  rateVal.textContent = S.rate.toFixed(1).replace('.', ',');
+  rate.addEventListener('input', () => {
+    S.rate = parseFloat(rate.value);
+    rateVal.textContent = S.rate.toFixed(1).replace('.', ',');
+  });
+
+
+  // ---------- Vorlagen (6 feste Sätze, werden auf dem Gerät gespeichert) ----------
+  const vorlagen = document.getElementById('vorlagen');
+  const VORGABEN = ['Ja.', 'Nein.', 'Danke.', 'Ich brauche kurz Hilfe.', 'Ich habe Durst.', 'Ich bin müde und möchte schlafen.'];
+  for (let i = 0; i < 6; i++) {
+    const inp = document.createElement('input');
+    inp.type = 'text'; inp.autocomplete = 'off'; inp.spellcheck = false;
+    inp.setAttribute('autocorrect', 'off'); inp.setAttribute('autocapitalize', 'off');
+    inp.placeholder = 'Vorlage ' + (i + 1);
+    const saved = localStorage.getItem('vorlage' + i);
+    inp.value = saved !== null ? saved : VORGABEN[i];
+    inp.addEventListener('input', () => localStorage.setItem('vorlage' + i, inp.value));
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); btn.click(); } });
+    const btn = document.createElement('button');
+    btn.type = 'button'; btn.textContent = '🔊'; btn.title = 'Vorlage vorlesen';
+    btn.addEventListener('click', () => {
+      unlock();
+      localStorage.setItem('vorlage' + i, inp.value);
+      if (inp.value.trim()) { synth.cancel(); speak(inp.value); }
+    });
+    vorlagen.appendChild(inp); vorlagen.appendChild(btn);
+  }
+
+  // Cursor direkt ins Feld
+  window.addEventListener('load', () => t.focus());
+  t.focus();
+})();
+</script>
+</body>
+</html>
